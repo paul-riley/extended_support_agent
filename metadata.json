@@ -1,6 +1,6 @@
 {
-  "name": "paulriley-extended_support_agent",
-  "version": "0.1.0",
+  "name": "priley-extended_support_agent",
+  "version": "1.0.0",
   "author": "Paul Riley",
   "summary": "Publishes an extended support agent repository on Puppet Enterprise",
   "license": "Apache-2.0",
