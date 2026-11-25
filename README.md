@@ -1,7 +1,7 @@
 # Extended Support Agent
 
 Run `extended_support_agent::publish_el7` in Puppet Enterprise 2026. Its required
-input, `el7_extended_support_agent_location`, is the full path to the EL7 x86_64 Puppet agent RPM on the primary.
+input, `el7_extended_support_agent_location`, is the full path to the EL7 x86_64 Puppet agent RPM on the target server.
 Supply this path when launching the plan. The task reads the build information from the RPM.
 
 ```sh
@@ -9,9 +9,10 @@ puppet plan run extended_support_agent::publish_el7 \
   el7_extended_support_agent_location=/path/to/el7-puppetagent.rpm
 ```
 
-Set `puppet_enterprise_certname` to target a specific PE primary. Otherwise
-the plan discovers the primary in PuppetDB using `is_pe` and
-`pe_server_version`. The task verifies the target locally in either case.
+Set `puppet_enterprise_certname` to target a primary or compiler and stage the
+RPM on that node. When omitted, PuppetDB must return exactly one PE 2026
+server using `is_pe` and `pe_server_version`. The task checks the target’s PE server version and publishes to its local
+package directory.
 
 Signature verification defaults to enabled. Set `require_gpg_check=false` to
 publish an RPM without running RPM signature or digest verification.
@@ -21,7 +22,7 @@ the signature-checked variant.
 
 The task requires root, Python 3, Bash, and `rpm`. It generates the Yum XML
 metadata with Python’s standard library. Signature
-verification also requires the signing key in the primary's RPM keyring.
+verification also requires the signing key in the target server's RPM keyring.
 Grant operators access to the plan and restrict the raw publishing task to
 trusted administrators.
 

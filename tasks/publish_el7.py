@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-"""Publish and activate a versioned EL7 installer on the PE primary."""
+"""Publish and activate a versioned EL7 installer on the target PE server."""
 
 import fcntl
 import gzip
@@ -220,13 +220,11 @@ def publish(
     installer_template, repo_template, require_gpg_check=True,
 ):
     if os.geteuid() != 0:
-        raise ValueError("The task must run as root on the PE primary.")
+        raise ValueError("The task must run as root on the target PE server.")
     facts = json.loads(command(
         "/opt/puppetlabs/bin/puppet", "facts", "show",
-        "is_pe", "role", "pe_server_version", "--render-as", "json"
+        "pe_server_version", "--render-as", "json"
     ))
-    if facts.get("is_pe") is not True or facts.get("role") != "peprimary":
-        raise ValueError("The node must have is_pe=true and role=peprimary.")
 
     version = facts.get("pe_server_version")
     if not isinstance(version, str) or not re.fullmatch(r"2026[.][0-9]+(?:[.][0-9]+)*", version):
@@ -245,7 +243,7 @@ def publish(
 
     requested = Path(el7_extended_support_agent_location)
     if not requested.is_absolute() or requested.suffix != ".rpm":
-        raise ValueError("el7_extended_support_agent_location must be an absolute RPM path on the PE primary.")
+        raise ValueError("el7_extended_support_agent_location must be an absolute RPM path on the target PE server.")
     source = requested.resolve(strict=True)
     if not source.is_file():
         raise ValueError("el7_extended_support_agent_location must point to a regular file.")
@@ -263,7 +261,7 @@ def publish(
         if require_gpg_check:
             signature = command("/usr/bin/rpm", "-Kv", str(candidate))
             if not re.search(r"Signature.*: OK$", signature, re.MULTILINE):
-                raise ValueError("The RPM must have a signature trusted by the primary's RPM keyring.")
+                raise ValueError("The RPM must have a signature trusted by the target server's RPM keyring.")
         query_format = "%{NAME} %{EPOCHNUM} %{VERSION} %{RELEASE} %{ARCH}"
         name, epoch, version, release, arch = command(
             "/usr/bin/rpm", "-qp", "--queryformat", query_format, "--nodigest", "--nosignature", str(candidate)

@@ -46,8 +46,8 @@ class PublishEl7Test(unittest.TestCase):
         self.current = package_root / "current"
         self.current.symlink_to(self.release)
         (self.release / "install.bash").write_text(
-            '"${PUPPET_BIN_DIR}/puppet" config set server primary.example.test --section main\n'
-            'run_agent_install_from_url "https://primary.example.test:8140/packages/2026.0.2/'
+            '"${PUPPET_BIN_DIR}/puppet" config set server compiler.example.test --section main\n'
+            'run_agent_install_from_url "https://compiler.example.test:8140/packages/2026.0.2/'
             '${INSTALLER_FILENAME}.bash" "$@"\n',
             encoding="utf-8",
         )
@@ -74,7 +74,8 @@ class PublishEl7Test(unittest.TestCase):
     def run_command(self, *args):
         self.commands.append(args)
         if args[0].endswith("/puppet"):
-            return json.dumps({"is_pe": True, "role": "peprimary", "pe_server_version": self.pe_version})
+            self.assertEqual(args[3:], ("pe_server_version", "--render-as", "json"))
+            return json.dumps({"pe_server_version": self.pe_version})
         if args[1] == "-Kv":
             return self.signature
         if args[1:3] == ("-qp", "--xml"):
@@ -99,13 +100,13 @@ class PublishEl7Test(unittest.TestCase):
     def rpm_options(self):
         return [args[1] for args in self.commands if args[0] == "/usr/bin/rpm"]
 
-    def test_default_checks_signature_and_publishes_signed_configuration(self):
+    def test_publishes_signed_configuration_on_a_compiler_with_only_the_server_version_fact(self):
         result = self.publish()
 
         self.assertEqual(self.rpm_options(), ["-Kv", "-qp", "-qp"])
         repo = self.repo.read_text()
         self.assertIn("gpgcheck=1", repo)
-        self.assertIn("gpgkey=https://primary.example.test:8140/packages/GPG-KEY-puppet", repo)
+        self.assertIn("gpgkey=https://compiler.example.test:8140/packages/GPG-KEY-puppet", repo)
         self.assertIn("puppet-agent-8.22.2-1.el7.x86_64", self.installer.read_text())
         self.assertEqual(self.active.resolve(), Path(result["directory"]))
         self.assertTrue((self.active / "repodata/repomd.xml").is_file())
@@ -182,6 +183,15 @@ class PublishEl7Test(unittest.TestCase):
 
         self.assertEqual(self.active.resolve(), Path(first["directory"]))
         self.assertEqual(Path(first["rpm_path"]).read_bytes(), RPM_HEADERS + b"test RPM")
+
+    def test_missing_pe_version_is_rejected_before_running_rpm(self):
+        self.pe_version = None
+
+        with self.assertRaisesRegex(ValueError, "must run Puppet Enterprise 2026"):
+            self.publish()
+
+        self.assertEqual(self.rpm_options(), [])
+        self.assertFalse(self.active.is_symlink())
 
     def test_release_mismatch_stops_before_running_rpm(self):
         self.pe_version = "2026.0.3"

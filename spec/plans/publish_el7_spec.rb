@@ -9,7 +9,7 @@ BoltSpec::Plans.init
 describe 'extended_support_agent::publish_el7' do
   include BoltSpec::Plans
 
-  let(:certname) { 'primary.example.test' }
+  let(:certname) { 'compiler.example.test' }
   let(:rpm_path) { '/etc/el7-puppetagent.rpm' }
   let(:el7) { YAML.safe_load_file(File.join(module_root, 'data/os/redhat_7.yaml')) }
   let(:common) { YAML.safe_load_file(File.join(module_root, 'data/common.yaml')) }
@@ -30,7 +30,7 @@ describe 'extended_support_agent::publish_el7' do
     }
   end
 
-  it 'discovers a PE 2026 primary and passes Hiera content with GPG checks enabled' do
+  it 'discovers a PE 2026 server and passes Hiera content with GPG checks enabled' do
     allow(puppetdb_client).to receive(:make_query).with(%r{facts\.is_pe = true.*facts\.pe_server_version}m, nil, nil).and_return([{ 'certname' => certname }])
     expect_task(plan_name).with_targets([certname]).with_params(task_params(true))
 
@@ -47,7 +47,7 @@ describe 'extended_support_agent::publish_el7' do
     }
   end
 
-  it 'skips discovery for an explicit certname and passes through false' do
+  it 'skips discovery for an explicit compiler certname and passes through false' do
     allow(puppetdb_client).to receive(:make_query).and_raise('An explicit target must skip discovery')
     expect_task(plan_name).with_targets([certname]).with_params(task_params(false))
 
@@ -62,6 +62,6 @@ describe 'extended_support_agent::publish_el7' do
 
     result = run_plan(plan_name, 'el7_extended_support_agent_location' => rpm_path)
 
-    expect(result).to have_attributes(ok?: false, value: satisfy { |value| value.to_s.include?('Expected one PE 2026 primary') })
+    expect(result).to have_attributes(ok?: false, value: satisfy { |value| value.to_s.include?('Expected one PE 2026 server') })
   end
 end

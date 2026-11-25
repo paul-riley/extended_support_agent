@@ -6,17 +6,17 @@
 
 ### Tasks
 
-* [`publish_el7`](#publish_el7): Publish and activate the EL7 Puppet agent installer on the PE primary
+* [`publish_el7`](#publish_el7): Publish and activate the EL7 Puppet agent installer on the target PE server
 
 ### Plans
 
-* [`extended_support_agent::publish_el7`](#extended_support_agent--publish_el7): Publish a staged EL7 Puppet agent build on the PE primary discovered in PuppetDB.
+* [`extended_support_agent::publish_el7`](#extended_support_agent--publish_el7): Publish a staged EL7 Puppet agent build on the selected PE server.
 
 ## Tasks
 
 ### <a name="publish_el7"></a>`publish_el7`
 
-Publish and activate the EL7 Puppet agent installer on the PE primary
+Publish and activate the EL7 Puppet agent installer on the target PE server
 
 **Supports noop?** false
 
@@ -26,7 +26,7 @@ Publish and activate the EL7 Puppet agent installer on the PE primary
 
 Data type: `String[1]`
 
-EL7 Extended Support Agent Location. Absolute path to the RPM on the PE primary.
+EL7 Extended Support Agent Location. Absolute path to the RPM on the target PE server.
 
 ##### `current_package_path`
 
@@ -62,7 +62,7 @@ Require a trusted RPM signature and enable Yum package signature checks. Default
 
 ### <a name="extended_support_agent--publish_el7"></a>`extended_support_agent::publish_el7`
 
-Publish a staged EL7 Puppet agent build on the PE primary discovered in PuppetDB.
+Publish a staged EL7 Puppet agent build on the selected PE server.
 
 #### Parameters
 
@@ -76,13 +76,13 @@ The following parameters are available in the `extended_support_agent::publish_e
 
 Data type: `Pattern[/\A\/.+\.rpm\z/]`
 
-EL7 Extended Support Agent Location. Absolute path to the RPM on the PE primary.
+EL7 Extended Support Agent Location. Absolute path to the RPM on the target PE server.
 
 ##### <a name="-extended_support_agent--publish_el7--require_gpg_check"></a>`require_gpg_check`
 
 Data type: `Boolean`
 
-Verify the RPM signature on the primary and require Yum GPG checks.
+Verify the RPM signature on the target server and require Yum GPG checks.
 
 Default value: `true`
 
@@ -90,7 +90,7 @@ Default value: `true`
 
 Data type: `Optional[Pattern[/\A[A-Za-z0-9][A-Za-z0-9._-]*\z/]]`
 
-Target certname. Omit to discover the PE primary in PuppetDB.
+Primary or compiler certname. Omit when PuppetDB has exactly one PE 2026 server.
 
 Default value: `undef`
 

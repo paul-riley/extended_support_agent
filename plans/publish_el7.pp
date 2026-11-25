@@ -1,7 +1,7 @@
-# Publish a staged EL7 Puppet agent build on the PE primary discovered in PuppetDB.
-# @param el7_extended_support_agent_location EL7 Extended Support Agent Location. Absolute path to the RPM on the PE primary.
-# @param require_gpg_check Verify the RPM signature on the primary and require Yum GPG checks.
-# @param puppet_enterprise_certname Target certname. Omit to discover the PE primary in PuppetDB.
+# Publish a staged EL7 Puppet agent build on the selected PE server.
+# @param el7_extended_support_agent_location EL7 Extended Support Agent Location. Absolute path to the RPM on the target PE server.
+# @param require_gpg_check Verify the RPM signature on the target server and require Yum GPG checks.
+# @param puppet_enterprise_certname Primary or compiler certname. Omit when PuppetDB has exactly one PE 2026 server.
 plan extended_support_agent::publish_el7(
   Pattern[/\A\/.+\.rpm\z/] $el7_extended_support_agent_location,
   Boolean $require_gpg_check = true,
@@ -13,11 +13,11 @@ plan extended_support_agent::publish_el7(
         facts.is_pe = true and facts.pe_server_version ~ "^2026[.]"
       }
       | QUERY
-    $primaries = puppetdb_query($query)
-    if $primaries.length != 1 {
-      fail_plan("Expected one PE 2026 primary in PuppetDB, found ${primaries.length}.")
+    $servers = puppetdb_query($query)
+    if $servers.length != 1 {
+      fail_plan("Expected one PE 2026 server in PuppetDB, found ${servers.length}. Specify puppet_enterprise_certname.")
     }
-    $primaries[0]['certname']
+    $servers[0]['certname']
   } else {
     $puppet_enterprise_certname
   }
