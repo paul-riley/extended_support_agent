@@ -5,6 +5,8 @@
   "summary": "Publishes an extended support agent repository on Puppet Enterprise",
   "license": "Apache-2.0",
   "source": "https://github.com/paul-riley/extended_support_agent",
+  "project_page": "https://github.com/paul-riley/extended_support_agent",
+  "issues_url": "https://github.com/paul-riley/extended_support_agent/issues",
   "dependencies": [],
   "operatingsystem_support": [
     {
