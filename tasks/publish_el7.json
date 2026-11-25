@@ -1,0 +1,30 @@
+{
+  "description": "Publish and activate the EL7 Puppet agent installer on the PE primary",
+  "input_method": "stdin",
+  "parameters": {
+    "el7_extended_support_agent_location": {
+      "type": "String[1]",
+      "description": "EL7 Extended Support Agent Location. Absolute path to the RPM on the PE primary."
+    },
+    "current_package_path": {
+      "type": "String[1]",
+      "description": "Path to the PE current package symlink"
+    },
+    "platform_tag": {
+      "type": "String[1]",
+      "description": "PE installer platform tag for the EL7 RPM"
+    },
+    "repo_template": {
+      "type": "String[1]",
+      "description": "EL7 Yum repository template from Hiera"
+    },
+    "installer_template": {
+      "type": "String[1]",
+      "description": "EL7 Bash installer template from Hiera"
+    },
+    "require_gpg_check": {
+      "type": "Optional[Boolean]",
+      "description": "Require a trusted RPM signature and enable Yum package signature checks. Defaults to true."
+    }
+  }
+}

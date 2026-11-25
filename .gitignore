@@ -1,0 +1,4 @@
+/Gemfile.lock
+/bin/
+/spec/fixtures/
+/.ruby-lsp/

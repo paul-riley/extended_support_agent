@@ -1,0 +1,2 @@
+---
+extended_support_agent::current_package_path: /opt/puppetlabs/server/data/packages/public/current
