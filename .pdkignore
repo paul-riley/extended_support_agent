@@ -49,3 +49,4 @@ bolt-debug.log
 /.vscode/
 /.sync.yml
 /.devcontainer/
+/.ruby-lsp/
