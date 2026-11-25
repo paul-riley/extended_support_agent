@@ -19,7 +19,8 @@ The generated repo explicitly sets `gpgcheck=0` and the installer omits GPG key
 handling. This variant gets a separate build directory so it can coexist with
 the signature-checked variant.
 
-The task requires root, Python 3, Bash, `rpm`, and `createrepo_c`. Signature
+The task requires root, Python 3, Bash, and `rpm`. It generates the Yum XML
+metadata with Python’s standard library. Signature
 verification also requires the signing key in the primary's RPM keyring.
 Grant operators access to the plan and restrict the raw publishing task to
 trusted administrators.
@@ -54,5 +55,5 @@ pdk test unit
 ```
 
 BoltSpec exercises plan targeting, Hiera lookup, and task arguments. The task
-unit tests use temporary directories and stub Puppet, RPM, and repository
-generation. They run Bash syntax checks against the rendered installer.
+unit tests use temporary directories and stub Puppet and RPM. They generate and verify the repository
+metadata. They run Bash syntax checks against the rendered installer.

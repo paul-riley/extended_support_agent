@@ -2,24 +2,29 @@
 """Publish and activate a versioned EL7 installer on the PE primary."""
 
 import fcntl
+import gzip
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
 import re
 import shutil
+import stat
+import struct
 import subprocess
 import sys
 import tempfile
+import xml.etree.ElementTree as ET
 
 
 def command(*args):
     result = subprocess.run(
-        args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True,
+        args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True,
         env={**os.environ, "LC_ALL": "C"},
     )
     if result.returncode:
-        raise ValueError("{} failed: {}".format(args[0], result.stdout.strip()))
+        raise ValueError("{} failed: {}".format(args[0], (result.stderr or result.stdout).strip()))
     return result.stdout.strip()
 
 
@@ -29,6 +34,139 @@ def digest(path):
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             checksum.update(chunk)
     return checksum.hexdigest()
+
+
+def rpm_header_range(path):
+    # The RPM lead is followed by the signature header, padding, and the main header.
+    def header_end(stream, start):
+        stream.seek(start)
+        magic, entries, store_size = struct.unpack(">4s4xII", stream.read(16))
+        if magic != b"\x8e\xad\xe8\x01":
+            raise ValueError("Invalid RPM header in {}".format(path.name))
+        return start + 16 + entries * 16 + store_size
+
+    with path.open("rb") as stream:
+        start = (header_end(stream, 96) + 7) & ~7
+        end = header_end(stream, start)
+    if end > path.stat().st_size:
+        raise ValueError("RPM header exceeds the file size: {}".format(path.name))
+    return {"start": str(start), "end": str(end)}
+
+
+def write_repository_metadata(path, name, epoch, version, release, arch):
+    """Write the three rpm-md XML documents and their index for a single RPM."""
+    header = ET.fromstring(command("/usr/bin/rpm", "-qp", "--xml", "--nodigest", "--nosignature", str(path)))
+    tags = {tag.attrib["name"]: [item.text or "" for item in tag] for tag in header}
+
+    def value(tag, fallback=""):
+        return tags.get(tag, [fallback])[0]
+
+    rpm_namespace = "http://linux.duke.edu/metadata/rpm"
+    namespace = "http://linux.duke.edu/metadata/"
+    primary = ET.Element("metadata", {"xmlns": namespace + "common", "xmlns:rpm": rpm_namespace, "packages": "1"})
+    filelists = ET.Element("filelists", {"xmlns": namespace + "filelists", "packages": "1"})
+    other = ET.Element("otherdata", {"xmlns": namespace + "other", "packages": "1"})
+    package = ET.SubElement(primary, "package", {"type": "rpm"})
+    package_id = digest(path)
+    package_attrs = {"pkgid": package_id, "name": name, "arch": arch}
+    file_package = ET.SubElement(filelists, "package", package_attrs)
+    other_package = ET.SubElement(other, "package", package_attrs)
+
+    ET.SubElement(package, "name").text = name
+    ET.SubElement(package, "arch").text = arch
+    version_attrs = {"epoch": epoch, "ver": version, "rel": release}
+    for element in (package, file_package, other_package):
+        ET.SubElement(element, "version", version_attrs)
+
+    ET.SubElement(package, "checksum", {"type": "sha256", "pkgid": "YES"}).text = package_id
+    for tag in ("Summary", "Description", "Packager", "Url"):
+        ET.SubElement(package, tag.lower()).text = value(tag)
+    timestamp = str(int(path.stat().st_mtime))
+    ET.SubElement(package, "time", {"file": timestamp, "build": value("Buildtime", "0")})
+    ET.SubElement(package, "size", {
+        "package": str(path.stat().st_size),
+        "installed": value("Longsize", value("Size", "0")),
+        "archive": value("Longarchivesize", value("Archivesize", "0")),
+    })
+    ET.SubElement(package, "location", {"href": path.name})
+    details = ET.SubElement(package, "format")
+    for tag in ("License", "Vendor", "Group", "Buildhost", "Sourcerpm"):
+        ET.SubElement(details, "rpm:" + tag.lower()).text = value(tag)
+    ET.SubElement(details, "rpm:header-range", rpm_header_range(path))
+
+    prereq_flags = 32 | 64 | 128 | 512 | 1024
+    comparisons = {2: "LT", 4: "GT", 8: "EQ", 10: "LE", 12: "GE"}
+    for family in ("Provide", "Require", "Conflict", "Obsolete", "Recommend", "Suggest", "Supplement", "Enhance"):
+        names = tags.get(family + "name", [])
+        if not names:
+            continue
+        entries = ET.SubElement(details, "rpm:" + family.lower() + "s")
+        seen = set()
+        for dependency, flags, evr in zip(names, tags[family + "flags"], tags[family + "version"]):
+            if family == "Require" and dependency.startswith("rpmlib("):
+                continue
+            attributes = {"name": dependency}
+            sense = int(flags)
+            if evr and sense & 14 in comparisons:
+                dep_epoch, separator, version_release = evr.partition(":")
+                if not separator:
+                    dep_epoch, version_release = "0", evr
+                dep_version, separator, dep_release = version_release.rpartition("-")
+                attributes.update({"flags": comparisons[sense & 14], "epoch": dep_epoch,
+                                   "ver": dep_version if separator else version_release})
+                if separator:
+                    attributes["rel"] = dep_release
+            # RPM marks prereqs and scriptlet requirements separately from comparisons.
+            if family == "Require" and sense & prereq_flags:
+                attributes["pre"] = "1"
+            identity = tuple(attributes.items())
+            if identity not in seen:
+                ET.SubElement(entries, "rpm:entry", attributes)
+                seen.add(identity)
+
+    directories = tags.get("Dirnames", [])
+    for base, directory, mode, flags in zip(*(tags.get(tag, []) for tag in (
+        "Basenames", "Dirindexes", "Filemodes", "Fileflags",
+    ))):
+        filename = directories[int(directory)] + base
+        attributes = {}
+        if stat.S_ISDIR(int(mode)):
+            attributes["type"] = "dir"
+        elif int(flags) & 64:
+            attributes["type"] = "ghost"
+        ET.SubElement(file_package, "file", attributes).text = filename
+        if filename.startswith("/etc/") or "/bin/" in filename or "/sbin/" in filename or filename == "/usr/lib/sendmail":
+            ET.SubElement(details, "file", attributes).text = filename
+
+    for author, date, text in zip(*(tags.get(tag, []) for tag in (
+        "Changelogname", "Changelogtime", "Changelogtext",
+    ))):
+        ET.SubElement(other_package, "changelog", {"author": author, "date": date}).text = text
+
+    repodata = path.parent / "repodata"
+    repodata.mkdir()
+    repomd = ET.Element("repomd", {"xmlns": namespace + "repo"})
+    ET.SubElement(repomd, "revision").text = timestamp
+    for kind, document in (("primary", primary), ("filelists", filelists), ("other", other)):
+        xml_buffer = io.BytesIO()
+        ET.ElementTree(document).write(xml_buffer, encoding="utf-8", xml_declaration=True)
+        xml = xml_buffer.getvalue()
+        buffer = io.BytesIO()
+        with gzip.GzipFile(fileobj=buffer, mode="wb", mtime=0) as stream:
+            stream.write(xml)
+        compressed = buffer.getvalue()
+        checksum = hashlib.sha256(compressed).hexdigest()
+        filename = "{}-{}.xml.gz".format(checksum, kind)
+        (repodata / filename).write_bytes(compressed)
+
+        entry = ET.SubElement(repomd, "data", {"type": kind})
+        ET.SubElement(entry, "checksum", {"type": "sha256"}).text = checksum
+        ET.SubElement(entry, "open-checksum", {"type": "sha256"}).text = hashlib.sha256(xml).hexdigest()
+        ET.SubElement(entry, "location", {"href": "repodata/" + filename})
+        ET.SubElement(entry, "timestamp").text = timestamp
+        ET.SubElement(entry, "size").text = str(len(compressed))
+        ET.SubElement(entry, "open-size").text = str(len(xml))
+    ET.ElementTree(repomd).write(str(repodata / "repomd.xml"), encoding="utf-8", xml_declaration=True)
 
 
 def render_installers(
@@ -128,7 +266,7 @@ def publish(
                 raise ValueError("The RPM must have a signature trusted by the primary's RPM keyring.")
         query_format = "%{NAME} %{EPOCHNUM} %{VERSION} %{RELEASE} %{ARCH}"
         name, epoch, version, release, arch = command(
-            "/usr/bin/rpm", "-qp", "--queryformat", query_format, str(candidate)
+            "/usr/bin/rpm", "-qp", "--queryformat", query_format, "--nodigest", "--nosignature", str(candidate)
         ).split()
         if (name, arch) != ("puppet-agent", "x86_64") or not re.search(r"(?:^|[.])el7(?:[.]|$)", release):
             raise ValueError("Expected an EL7 x86_64 puppet-agent RPM.")
@@ -177,13 +315,9 @@ def publish(
 
             changed = not destination.exists()
             if changed:
-                createrepo = shutil.which("createrepo_c")
-                if not createrepo:
-                    raise ValueError("Install createrepo_c on the PE primary before publishing.")
-                candidate.rename(bundle / rpm_name)
-                command(createrepo, "--compress-type", "gz", str(bundle))
-                if not (bundle / "repodata/repomd.xml").is_file():
-                    raise ValueError("createrepo_c did not produce repodata/repomd.xml.")
+                rpm_path = bundle / rpm_name
+                candidate.rename(rpm_path)
+                write_repository_metadata(rpm_path, name, epoch, version, release, arch)
                 for filename, contents in ((installer_name, installer), (repo_name, repo)):
                     artifact = bundle / filename
                     artifact.write_text(contents, encoding="utf-8")
@@ -236,6 +370,6 @@ if __name__ == "__main__":
             require_gpg_check=parameters.get("require_gpg_check") is not False,
         )
         print(json.dumps(result))
-    except (KeyError, OSError, ValueError) as error:
+    except (ET.ParseError, KeyError, OSError, ValueError, struct.error) as error:
         print(json.dumps({"_error": {"kind": "extended_support_agent/publish", "msg": str(error)}}))
         sys.exit(1)

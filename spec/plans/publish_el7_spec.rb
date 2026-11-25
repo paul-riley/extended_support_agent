@@ -1,17 +1,23 @@
 # frozen_string_literal: true
 
 require 'spec_helper'
+require 'bolt_spec/plans'
 require 'yaml'
+
+BoltSpec::Plans.init
 
 describe 'extended_support_agent::publish_el7' do
   include BoltSpec::Plans
 
   let(:certname) { 'primary.example.test' }
   let(:rpm_path) { '/etc/el7-puppetagent.rpm' }
-  let(:module_root) { File.expand_path('../..', __dir__) }
   let(:el7) { YAML.safe_load_file(File.join(module_root, 'data/os/redhat_7.yaml')) }
   let(:common) { YAML.safe_load_file(File.join(module_root, 'data/common.yaml')) }
   let(:plan_name) { 'extended_support_agent::publish_el7' }
+
+  def module_root
+    File.expand_path('../..', __dir__)
+  end
 
   def task_params(gpg_check)
     {
@@ -25,7 +31,7 @@ describe 'extended_support_agent::publish_el7' do
   end
 
   it 'discovers a PE 2026 primary and passes Hiera content with GPG checks enabled' do
-    expect(puppetdb_client).to receive(:make_query).with(/facts\.is_pe = true.*facts\.pe_server_version/m, nil, nil).and_return([{ 'certname' => certname }])
+    allow(puppetdb_client).to receive(:make_query).with(%r{facts\.is_pe = true.*facts\.pe_server_version}m, nil, nil).and_return([{ 'certname' => certname }])
     expect_task(plan_name).with_targets([certname]).with_params(task_params(true))
 
     result = run_plan(plan_name, 'el7_extended_support_agent_location' => rpm_path)
@@ -33,26 +39,29 @@ describe 'extended_support_agent::publish_el7' do
     expect(result.ok?).to be(true), result.value.to_s
   end
 
-  it 'skips discovery for an explicit certname and passes through false' do
-    expect(puppetdb_client).not_to receive(:make_query)
-    expect_task(plan_name).with_targets([certname]).with_params(task_params(false))
-
-    result = run_plan(plan_name, {
+  def explicit_params
+    {
       'el7_extended_support_agent_location' => rpm_path,
       'puppet_enterprise_certname' => certname,
       'require_gpg_check' => false,
-    })
+    }
+  end
+
+  it 'skips discovery for an explicit certname and passes through false' do
+    allow(puppetdb_client).to receive(:make_query).and_raise('An explicit target must skip discovery')
+    expect_task(plan_name).with_targets([certname]).with_params(task_params(false))
+
+    result = run_plan(plan_name, explicit_params)
 
     expect(result.ok?).to be(true), result.value.to_s
   end
 
   it 'fails before dispatching when discovery is ambiguous' do
-    expect(puppetdb_client).to receive(:make_query).and_return([{ 'certname' => certname }, { 'certname' => 'other.example.test' }])
+    allow(puppetdb_client).to receive(:make_query).and_return([{ 'certname' => certname }, { 'certname' => 'other.example.test' }])
     expect_task(plan_name).not_be_called
 
     result = run_plan(plan_name, 'el7_extended_support_agent_location' => rpm_path)
 
-    expect(result.ok?).to be(false)
-    expect(result.value.to_s).to include('Expected one PE 2026 primary')
+    expect(result).to have_attributes(ok?: false, value: satisfy { |value| value.to_s.include?('Expected one PE 2026 primary') })
   end
 end
